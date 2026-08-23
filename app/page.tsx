@@ -1,197 +1,38 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
-function Shell({
-  title,
-  subtitle,
-  badge = "Portfolio demo · local-only",
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  badge?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-100">
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <header className="mb-8">
-          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{badge}</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-        </header>
-        {children}
-        <footer className="mt-10 border-t border-zinc-200 pt-4 text-xs text-zinc-500 dark:border-zinc-800">
-          Honest demo: no multi-tenant backend. State (if any) stays in this browser.
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-function Button({
-  children,
-  onClick,
-  variant = "primary",
-  disabled,
-  type = "button",
-  className = "",
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  disabled?: boolean;
-  type?: "button" | "submit";
-  className?: string;
-}) {
-  const base =
-    "inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-50 " +
-    className;
-  const styles =
-    variant === "primary"
-      ? "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
-      : variant === "secondary"
-        ? "bg-white text-zinc-900 ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700"
-        : variant === "danger"
-          ? "bg-red-600 text-white hover:bg-red-500"
-          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900";
-  return (
-    <button type={type} disabled={disabled} onClick={onClick} className={`${base} ${styles}`}>
-      {children}
-    </button>
-  );
-}
-
-const inputClass =
-  "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950";
+type Entry = { id: string; title: string; body: string; status: "Open" | "Draft" | "Closed"; createdAt: number };
+const INITIAL: Entry[] = [{ id: "1", title: "Sticker pack", body: "Comment to enter", status: "Open", createdAt: Date.now() - 86400000 }];
 
 function useLocalStorage<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
   const [ready, setReady] = useState(false);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw != null) setValue(JSON.parse(raw) as T);
-    } catch {
-      /* ignore */
-    }
-    setReady(true);
-  }, [key]);
-  useEffect(() => {
-    if (!ready) return;
-    localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value, ready]);
+  useEffect(() => { const timer = window.setTimeout(() => { try { const raw = window.localStorage.getItem(key); if (raw) setValue(JSON.parse(raw) as T); } catch { /* local-only recovery */ } setReady(true); }, 0); return () => window.clearTimeout(timer); }, [key]);
+  useEffect(() => { if (ready) window.localStorage.setItem(key, JSON.stringify(value)); }, [key, value, ready]);
   return [value, setValue] as const;
 }
 
-function uid() {
-  return crypto.randomUUID();
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-
-type Item = { id: string; title: string; body: string; status: string; createdAt: number };
-
-const SEED: Item[] = [{"title": "Sticker pack", "body": "Comment to enter", "status": "Open"}].map((x: any, i: number) => ({
-  id: String(x.id ?? i + 1),
-  title: x.title,
-  body: x.body,
-  status: x.status,
-  createdAt: x.createdAt ?? Date.now() - i * 86400000,
-}));
-
-const FIELDS = [{"key": "title", "label": "Title", "type": "text"}, {"key": "body", "label": "Details", "type": "textarea"}, {"key": "status", "label": "Status", "type": "select", "options": ["Draft", "Active", "Done"]}] as { key: "title" | "body" | "status"; label: string; type: string; options?: string[] }[];
-
 export default function Home() {
-  const [items, setItems] = useLocalStorage<Item[]>("giveaways-v1", SEED);
+  const [entries, setEntries] = useLocalStorage<Entry[]>("giveaways-v2", INITIAL);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(FIELDS.map((f) => [f.key, f.options?.[0] ?? ""]))
-  );
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [status, setStatus] = useState<Entry["status"]>("Open");
+  const [notice, setNotice] = useState("The window is ready for a new entry.");
+  const filtered = useMemo(() => entries.filter((entry) => `${entry.title} ${entry.body} ${entry.status}`.toLowerCase().includes(query.toLowerCase())), [entries, query]);
 
-  const filtered = items.filter((it) =>
-    (it.title + it.body + it.status).toLowerCase().includes(query.toLowerCase())
-  );
-
-  const add = () => {
-    if (!String(draft.title || "").trim()) return;
-    setItems((prev) => [
-      {
-        id: uid(),
-        title: draft.title || "",
-        body: draft.body || "",
-        status: draft.status || "",
-        createdAt: Date.now(),
-      },
-      ...prev,
-    ]);
-    setDraft(Object.fromEntries(FIELDS.map((f) => [f.key, f.options?.[0] ?? ""])));
+  const addEntry = () => {
+    if (!title.trim()) { setNotice("A ticket needs a title before it can be filed."); return; }
+    setEntries((items) => [{ id: crypto.randomUUID(), title: title.trim(), body: body.trim() || "No details", status, createdAt: Date.now() }, ...items]);
+    setTitle(""); setBody(""); setStatus("Open"); setNotice("Entry printed and filed in this browser.");
   };
 
-  return (
-    <Shell title="Giveaways" subtitle="Simple giveaway entries.">
-      <div className="mb-4 flex flex-wrap gap-2">
-        <input className={`${inputClass} max-w-sm`} placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <span className="self-center text-sm text-zinc-500">{filtered.length} items</span>
-      </div>
-      <div className="mb-6 grid gap-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 md:grid-cols-2">
-        {FIELDS.map((f) => (
-          <label key={f.key} className="block space-y-1">
-            <span className="text-xs font-medium text-zinc-500">{f.label}</span>
-            {f.type === "textarea" ? (
-              <textarea
-                className={`${inputClass} min-h-[72px]`}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              />
-            ) : f.type === "select" ? (
-              <select
-                className={inputClass}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              >
-                {(f.options || []).map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className={inputClass}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              />
-            )}
-          </label>
-        ))}
-        <div className="md:col-span-2">
-          <Button onClick={add}>Add</Button>
-        </div>
-      </div>
-      <ul className="space-y-2">
-        {filtered.map((it) => (
-          <li key={it.id} className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <div className="font-medium">{it.title}</div>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{it.body}</p>
-                <span className="mt-2 inline-block rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-900">{it.status}</span>
-              </div>
-              <Button variant="ghost" onClick={() => setItems((prev) => prev.filter((x) => x.id !== it.id))}>
-                Delete
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Shell>
-  );
+  return <main className="gw-page">
+    <header className="gw-topbar"><Link className="gw-mark" href="/">ENTRY / WINDOW</Link><span>RAFFLE OFFICE · LOCAL FILE</span><span className="gw-count">{String(entries.length).padStart(2, "0")} TICKETS</span></header>
+    <section className="gw-hero"><div><p className="gw-stamp">SMALL DRAW / SAMPLE REGISTER</p><h1>Make the draw<br /><span>legible.</span></h1><p className="gw-intro">A local list for giveaway entries. Print a clear ticket, search the rack, and keep the demo honest: there is no random winner engine behind this counter.</p></div><div className="gw-ticket"><div className="gw-ticket-head"><span>NEW ENTRY</span><b>NO. {String(entries.length + 1).padStart(3, "0")}</b></div><div className="gw-ticket-form"><label>Title<input aria-label="Entry title" placeholder="Prize or campaign" value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>Details<textarea aria-label="Entry details" placeholder="How someone enters" value={body} onChange={(event) => setBody(event.target.value)} /></label><label>Status<select aria-label="Entry status" value={status} onChange={(event) => setStatus(event.target.value as Entry["status"])}><option>Open</option><option>Draft</option><option>Closed</option></select></label><button type="button" onClick={addEntry}>PRINT ENTRY <span>↗</span></button><p role="status">{notice}</p></div></div></section>
+    <section className="gw-rack" aria-labelledby="rack-title"><div className="gw-rule"><span>02 / TICKET RACK</span><span>{filtered.length} MATCHES</span></div><div className="gw-rack-head"><h2 id="rack-title">The entry rack.</h2><label className="gw-search">FIND<input aria-label="Search entries" placeholder="Search title, details, status" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div><div className="gw-list">{filtered.length === 0 ? <p className="gw-empty">No tickets match that search.</p> : filtered.map((entry, index) => <article className="gw-entry" key={entry.id}><span className="gw-entry-number">{String(index + 1).padStart(2, "0")}</span><div className="gw-entry-copy"><div><h3>{entry.title}</h3><span className={`gw-status gw-status-${entry.status.toLowerCase()}`}>{entry.status}</span></div><p>{entry.body}</p></div><time dateTime={new Date(entry.createdAt).toISOString()}>{new Date(entry.createdAt).toLocaleDateString("en-GB")}</time><button className="gw-delete" type="button" onClick={() => { setEntries((items) => items.filter((item) => item.id !== entry.id)); setNotice("Ticket removed from the local rack."); }} aria-label={`Delete ${entry.title}`}>REMOVE</button></article>)}</div></section>
+    <footer className="gw-footer"><strong>NO DRAW ENGINE / CRUD DEMO</strong><span>Giveaways · Bookchaowalit · localStorage only</span></footer>
+  </main>;
 }
