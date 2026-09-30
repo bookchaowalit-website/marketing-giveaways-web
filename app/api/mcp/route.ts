@@ -1,11 +1,12 @@
 import { handleRpc } from "@/lib/mcp";
+import { SITE_URL } from "@/lib/site";
 
 export const runtime = "edge";
 
 const APP = {
   name: "Giveaways",
   description: "A local giveaway entry rack.",
-  url: "https://bookchaowalit-giveaways-frontend.vercel.app",
+  url: SITE_URL,
 };
 
 export async function POST(request: Request) {

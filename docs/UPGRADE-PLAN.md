@@ -7,7 +7,6 @@ Score: 7/10 (was 5/10) — working local ticket rack with create/search/re-stamp
 ## Backlog
 
 - P1: Add a Playwright smoke test (add entry, search, re-stamp, remove) once a browser runner is available in CI.
-- P1: Replace `public/sitemap.xml` / `robots.txt` hosts with the real deployment host once confirmed.
 - P2: Export/import the local rack as JSON so entries survive a browser reset.
 - P2: Self-host the display fonts to avoid a Google Fonts fetch at build time.
 
@@ -18,3 +17,7 @@ Score: 7/10 (was 5/10) — working local ticket rack with create/search/re-stamp
 - `/more-projects` renders from `lib/related-projects.ts` (was 978 lines of hand-unrolled links plus an unused copy of the data) and no longer links to itself.
 - Entry logic extracted to `lib/entries.ts` with validation of stored data; entries can now be re-stamped (Open/Draft/Closed), completing the README's CRUD claim.
 - The ticket is a real `<form>` (Enter submits, `required`, length limits); removed the stale `app/page.tsx.backup`.
+
+## Done in this pass (pass 2)
+
+- Canonical host is config-driven: `lib/site.ts` resolves `NEXT_PUBLIC_SITE_URL` (validated, clear error on a non-http(s) value) and feeds `metadataBase`, generated `app/sitemap.ts` / `app/robots.ts` and the MCP `get_app_info` URL; removed the stale template `public/sitemap.xml` / `robots.txt` (they pointed at `bookchaowalit.com` and a `*.vercel.app` name that differs from the project URL). Tested in `lib/site.test.ts`.
