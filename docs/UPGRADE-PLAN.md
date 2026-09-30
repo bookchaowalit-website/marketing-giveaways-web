@@ -21,3 +21,13 @@ Score: 7/10 (was 5/10) — working local ticket rack with create/search/re-stamp
 ## Done in this pass (pass 2)
 
 - Canonical host is config-driven: `lib/site.ts` resolves `NEXT_PUBLIC_SITE_URL` (validated, clear error on a non-http(s) value) and feeds `metadataBase`, generated `app/sitemap.ts` / `app/robots.ts` and the MCP `get_app_info` URL; removed the stale template `public/sitemap.xml` / `robots.txt` (they pointed at `bookchaowalit.com` and a `*.vercel.app` name that differs from the project URL). Tested in `lib/site.test.ts`.
+
+## Done in this pass (pass 3)
+- Edge-case pass on `lib/entries.ts` (regression tests in `lib/entries.test.ts`):
+  - Stored entries only checked `typeof createdAt === "number"`; a value such
+    as `1e20` passed and `new Date(...).toISOString()` in the rack threw a
+    RangeError, crashing the page on load. Timestamps must now be in Date range.
+  - Repeated ids in storage were kept (duplicate React keys); a leading BOM
+    made the saved list unreadable.
+  - Invisible-only titles were accepted; clipping could cut an emoji in half.
+  - Header counter read "01 TICKETS"; now "01 TICKET" (`ticketCount`).
