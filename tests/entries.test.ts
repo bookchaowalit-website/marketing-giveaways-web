@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEntry, filterEntries, parseStoredEntries, ticketCount, type Entry } from "./entries";
+import { createEntry, filterEntries, parseStoredEntries, ticketCount, type Entry } from "@/lib/entries";
 
 const entries: Entry[] = [
   { id: "1", title: "Sticker pack", body: "Comment to enter", status: "Open", createdAt: 1 },
