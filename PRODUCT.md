@@ -1,46 +1,43 @@
-# bookchaowalit-giveaways-frontend — Product brief
+# Giveaways — Product truth
 
-**Slug:** `bookchaowalit-website/bookchaowalit-giveaways-frontend`  
-**Generated:** 2026-08-11 (bulk Book Dev closeout)  
-**Status:** starter / portfolio boundary
+> Inferred from the code and copy (no user interview). Checked against the portfolio card claims review
+> (`portfolio-site-web/docs/audits/CARD-CLAIMS-REVIEW-2026-10.md`, row `giveaways`, evidence Live→Prototype: entry
+> collection, weighted random winner selection, referral entries and a public results page were removed) on 2026-10-23.
 
-## Purpose
+## What it is
 
-Portfolio repository under Book Dev. This brief records ownership and the
-current honest status so the nested tree is not an empty shell in the task
-system.
+A client-only CRUD list of giveaway tickets, footed "NO DRAW ENGINE / CRUD DEMO".
 
-## Runnable path
+## Who it is for
 
-See `README.md` for install and run instructions when present.
+A portfolio visitor looking at a bold, small form-and-list UI; at most a note-keeping aid for someone planning a
+giveaway.
 
-## Limits
+## What works today
 
-- Not claimed as production-ready unless README and tests prove it.
-- Mobile smoke / emulator acceptance is separate and toolchain-dependent.
+1. One sample ticket ("Sticker pack"); add tickets with a title (≤ 80), details (≤ 400) and status Open, Draft or
+   Closed. A blank title is rejected; blank details become "No details".
+2. Search by title, details or status; re-stamp a ticket's status; remove it. A status line reports each action.
+3. Tickets persist in `localStorage` and are validated on load.
+4. `/api/mcp` answers JSON-RPC (`initialize`, `ping`, `tools/list`, `tools/call`) with one honest `get_app_info` tool;
+   unknown tools and methods return JSON-RPC errors.
+5. Front-end and server errors go to Sentry (errors only, personal data stripped) when `NEXT_PUBLIC_SENTRY_DSN` is set.
 
-## Source README excerpt
+## What does not work (and must not be claimed)
 
-```
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+- No entry collection from participants, no random or weighted winner draw, no referral entries, no results page.
+- No account, sharing or sync; clearing site data deletes the tickets.
 
-## Getting Started
+## Live URL and deploy state
 
-First, run the development server:
+- Live: https://giveaways.bookchaowalit.com (HTTP 200 on 2026-10-23).
+- The Vercel project `bookchaowalit-giveaways-frontend` is deployed by CLI only. Its Git link names the old repository
+  (`bookchaowalit/bookchaowalit-giveaways-frontend`), so a push to `main` does not deploy. The last production deploy
+  is the CVE patch (2026-10-23 12:20, CLI, commit 613a01f); later commits (tests, Sentry, the hydration fix) stay
+  undeployed until the owner reconnects Vercel Git to this repository (owner action D9).
+- `NEXT_PUBLIC_SENTRY_DSN` is set on the Vercel project (Sentry project `marketing-giveaways-web`, org
+  `personal-yu0`); it takes effect on the next deploy.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Boundaries
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize an
-```
+- Browser-only apart from the stateless `/api/mcp` route. No server storage, no personal data collected.
