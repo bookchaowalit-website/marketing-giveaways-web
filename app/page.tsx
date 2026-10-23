@@ -2,9 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { createEntry, filterEntries, parseStoredEntries, STATUSES, MAX_BODY, MAX_TITLE, ticketCount, type Entry } from "@/lib/entries";
-
-const INITIAL: Entry[] = [{ id: "1", title: "Sticker pack", body: "Comment to enter", status: "Open", createdAt: Date.now() - 86400000 }];
+import { createEntry, filterEntries, parseStoredEntries, SAMPLE_ENTRIES, STATUSES, MAX_BODY, MAX_TITLE, ticketCount, type Entry } from "@/lib/entries";
 
 function useStoredEntries(key: string, initial: Entry[]) {
   const [value, setValue] = useState<Entry[]>(initial);
@@ -15,7 +13,7 @@ function useStoredEntries(key: string, initial: Entry[]) {
 }
 
 export default function Home() {
-  const [entries, setEntries] = useStoredEntries("giveaways-v2", INITIAL);
+  const [entries, setEntries] = useStoredEntries("giveaways-v2", SAMPLE_ENTRIES);
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");

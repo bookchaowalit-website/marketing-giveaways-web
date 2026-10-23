@@ -2,6 +2,13 @@ export const STATUSES = ["Open", "Draft", "Closed"] as const;
 export type Status = (typeof STATUSES)[number];
 export type Entry = { id: string; title: string; body: string; status: Status; createdAt: number };
 
+/**
+ * The sample ticket shown before anything is stored. Its timestamp is fixed (noon UTC, so the
+ * en-GB date is the same in every time zone): the page is prerendered at build time and hydrated
+ * later, and a Date.now()-based seed made the server and client markup disagree.
+ */
+export const SAMPLE_ENTRIES: Entry[] = [{ id: "1", title: "Sticker pack", body: "Comment to enter", status: "Open", createdAt: Date.UTC(2026, 9, 1, 12) }];
+
 export const MAX_TITLE = 80;
 export const MAX_BODY = 400;
 
