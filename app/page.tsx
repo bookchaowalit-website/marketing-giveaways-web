@@ -6,7 +6,14 @@ import { createEntry, filterEntries, MAX_BODY, MAX_TITLE, parseStoredEntries, SA
 import { useStoredState } from "@/lib/use-stored-state";
 
 type ListFilter = "All" | Status;
-type Removed = { entry: Entry; index: number; viaKeyboard: boolean };
+// index: where it sat in the stored list when removed. nextShown / prevShown: the rows shown around it, for focus.
+type RemovedEntry = { entry: Entry; index: number; nextShown?: string; prevShown?: string };
+type RemovedBatch = { removals: RemovedEntry[]; viaKeyboard: boolean };
+const removedLabel = (removals: RemovedEntry[]) => (removals.length === 1 ? `Removed “${removals[0].entry.title}”` : `Removed ${removals.length} entries`);
+/** Put a removed entry back at its old index, unless it is already there. */
+function putBack(list: Entry[], item: Entry, index: number): Entry[] {
+  return list.some((other) => other.id === item.id) ? list : [...list.slice(0, index), item, ...list.slice(index)];
+}
 
 const STORAGE_KEY = "giveaways-v2";
 const EMPTY: Draft = { title: "", body: "", status: "Open" };
@@ -28,13 +35,18 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
-  const [removed, setRemoved] = useState<Removed | null>(null);
+  // Every removal still inside the Undo window: one Undo puts them all back where they were.
+  const [removed, setRemovedState] = useState<RemovedBatch | null>(null);
+  // The latest batch, so two removals before a re-render still both land in it.
+  const removedRef = useRef<RemovedBatch | null>(null);
+  const setRemoved = (batch: RemovedBatch | null) => { removedRef.current = batch; setRemovedState(batch); };
   const [toastFocused, setToastFocused] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const titleRef = useRef<HTMLInputElement>(null);
   const newRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
+  const focusNext = useRef<string[] | null>(null);
   const toastRef = useRef<HTMLDivElement>(null);
   const wasComposing = useRef(false);
   const inList = useMemo(() => (list === "All" ? entries : entries.filter((entry) => entry.status === list)), [entries, list]);
@@ -48,10 +60,20 @@ export default function Home() {
     wasComposing.current = composing;
   }, [composing]);
   useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
-  // The Undo toast closes 6 s after a removal, but never while it holds focus.
+  // When the toast closes after Undo or Escape, focus goes back near the removed row once the list has re-rendered:
+  // the first of these rows still shown, else the New button.
+  useEffect(() => {
+    const ids = focusNext.current;
+    if (removed || !ids) return;
+    focusNext.current = null;
+    const rows = [...document.querySelectorAll<HTMLElement>(".as-row[data-item]")];
+    const row = ids.map((id) => rows.find((entry) => entry.dataset.item === id)).find(Boolean);
+    (row?.querySelector<HTMLButtonElement>(".as-danger") ?? newRef.current)?.focus();
+  }, [removed, entries]);
+  // The Undo toast closes 6 s after the latest removal (each removal restarts it), but never while it holds focus.
   useEffect(() => {
     if (!removed || toastFocused) return;
-    const timer = window.setTimeout(() => setRemoved(null), 6000);
+    const timer = window.setTimeout(() => { removedRef.current = null; setRemovedState(null); }, 6000);
     return () => window.clearTimeout(timer);
   }, [removed, toastFocused]);
   // While the toast shows, the page reserves its height so nothing focusable stays hidden under it.
@@ -85,17 +107,29 @@ export default function Home() {
     const index = entries.findIndex((item) => item.id === entry.id);
     if (index < 0) return;
     setEntries((current) => current.filter((item) => item.id !== entry.id));
-    setRemoved({ entry, index, viaKeyboard });
-    setAnnouncement(`Removed “${entry.title}”. Undo is available for a few seconds.`);
+    const shownAt = visible.findIndex((item) => item.id === entry.id);
+    const removal: RemovedEntry = { entry, index, nextShown: visible[shownAt + 1]?.id, prevShown: shownAt > 0 ? visible[shownAt - 1].id : undefined };
+    const removals = [...(removedRef.current?.removals ?? []), removal];
+    setRemoved({ removals, viaKeyboard });
+    setAnnouncement(removals.length === 1 ? `Removed “${entry.title}”. Undo is available for a few seconds.` : `Removed ${removals.length} entries. Undo is available for a few seconds.`);
   }
 
-  function undo() {
-    if (!removed) return;
-    const { entry, index } = removed;
-    setEntries((current) => (current.some((item) => item.id === entry.id) ? current : [...current.slice(0, index), entry, ...current.slice(index)]));
-    setAnnouncement(`Restored “${entry.title}”.`);
+  function closeToast(focusIds?: string[]) {
+    const last = removedRef.current?.removals.at(-1);
+    // Dismissed: the row after the removed one, else the one before it.
+    focusNext.current = focusIds ?? [last?.nextShown, last?.prevShown].filter((id): id is string => Boolean(id));
     setRemoved(null);
     setToastFocused(false);
+  }
+  function undo() {
+    const removals = removedRef.current?.removals;
+    if (!removals?.length) return;
+    // Latest removal first, so each index refers to the list as it was just before that removal.
+    setEntries((current) => removals.reduceRight((list, { entry, index }) => putBack(list, entry, index), current));
+    const latest = removals[removals.length - 1].entry;
+    setAnnouncement(removals.length === 1 ? `Restored “${latest.title}”.` : `Restored ${removals.length} entries.`);
+    // Undone: back to the restored row the user removed last.
+    closeToast([latest.id]);
   }
 
   function clearSearch() {
@@ -164,7 +198,7 @@ export default function Home() {
           {visible.length ? (
             <ul className="as-list" aria-label={title}>
               {visible.map((entry) => (
-                <li className="as-row" key={entry.id}>
+                <li className="as-row" key={entry.id} data-item={entry.id}>
                   <div>
                     <h3>{entry.title}</h3>
                     <p className="as-row-detail">{entry.body}</p>
@@ -209,10 +243,10 @@ export default function Home() {
           aria-label="Undo remove"
           onFocus={() => setToastFocused(true)}
           onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
-          onKeyDown={(event) => { if (event.key === "Escape") { setRemoved(null); setToastFocused(false); } }}
+          onKeyDown={(event) => { if (event.key === "Escape") closeToast(); }}
         >
-          <span>Removed “{removed.entry.title}”</span>
-          <button ref={undoRef} type="button" className="as-plain" onClick={undo}>Undo</button>
+          <span>{removedLabel(removed.removals)}</span>
+          <button ref={undoRef} type="button" className="as-plain" onClick={undo} aria-label={removed.removals.length === 1 ? "Undo remove" : `Undo remove of ${removed.removals.length} entries`}>Undo</button>
         </div>
       ) : null}
 
