@@ -1,20 +1,23 @@
-# Design direction
+# Giveaways — design direction
 
-## Product world
+## Product surface
 
-Giveaways is a raffle ticket window. The orange ticket form, numbered entries, search rack, and stamped statuses make the simple CRUD demo legible as a small back-office counter rather than another generic admin screen.
+A plain list of giveaway entries kept in this browser: add, search, change status, remove. There is
+no draw engine and nothing contacts entrants.
 
-## Visual system
+## System (2026-11-19)
 
-- Palette: cobalt `#2547c7`, paper `#f4f1e9`, ink `#17171b`, ticket orange `#b64024`, and mint `#b7f0c8`.
-- Type: `Bungee` for ticket-window headlines and `DM Mono` for labels, entry numbers, and status copy.
-- Composition: one physical ticket as the primary action, followed by a ruled entry rack and search line.
-- Motion: only small control and focus transitions; reduced-motion mode disables nonessential movement.
+The site uses the shared **App shell** (`app/app-shell.css`, `components/app-shell.tsx`, see
+`APP-SHELL.md`), copied byte-identical from productivity-ideas-web. One set of colours: the shell's
+`--as-*` tokens in light and dark (the old double `--orange` and cobalt/tangerine theme are gone);
+`.gw-*` additions in `app/globals.css` reuse them. Typography is Geist via `next/font`.
 
-## Interaction and boundary
-
-Users can add, search, and remove local giveaway entries, with open/draft/closed statuses. Entries persist in `localStorage`. The product intentionally has no random draw engine, winner selection, notification, or server-backed campaign flow.
-
-## Responsive behavior
-
-The ticket becomes a full-width first action on mobile. Rack entries collapse into a readable three-column record with the remove action still accessible and no horizontal overflow.
+- Lists: All entries, Open, Draft, Closed with counts; search in the head.
+- One filled button: New entry. The composer opens in place, focuses the title, and keeps Add
+  disabled until it has text; status is a segmented control.
+- Rows: title, how to enter, date, a status select (44px) and status pill (text, not colour alone),
+  Remove with Undo.
+- Empty states: "No entries yet" (nothing stored), "No Draft entries" (empty list), and
+  "Nothing matches" with Clear search. Counts read "1 entry" / "2 entries".
+- Footer back to bookchaowalit.com; `/more-projects` redirects there. No analytics scripts.
+- Floor: text >= 12px, controls >= 44px, 3px focus ring, 4.5:1 text, 3:1 input edges, no horizontal scroll at 320px.

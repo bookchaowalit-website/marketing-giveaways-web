@@ -1,42 +1,222 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import Link from "next/link";
-import { createEntry, filterEntries, parseStoredEntries, SAMPLE_ENTRIES, STATUSES, MAX_BODY, MAX_TITLE, ticketCount, type Entry } from "@/lib/entries";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AppFoot, AppTop, ListButton, Pill, PlusIcon, type Tone } from "@/components/app-shell";
+import { createEntry, filterEntries, MAX_BODY, MAX_TITLE, parseStoredEntries, SAMPLE_ENTRIES, STATUSES, type Draft, type Entry, type Status } from "@/lib/entries";
+import { useStoredState } from "@/lib/use-stored-state";
 
-function useStoredEntries(key: string, initial: Entry[]) {
-  const [value, setValue] = useState<Entry[]>(initial);
-  const [ready, setReady] = useState(false);
-  useEffect(() => { const timer = window.setTimeout(() => { try { const stored = parseStoredEntries(window.localStorage.getItem(key)); if (stored) setValue(stored); } catch { /* local-only recovery */ } setReady(true); }, 0); return () => window.clearTimeout(timer); }, [key]);
-  useEffect(() => { if (!ready) return; try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } }, [key, value, ready]);
-  return [value, setValue] as const;
+type ListFilter = "All" | Status;
+type Removed = { entry: Entry; index: number; viaKeyboard: boolean };
+
+const STORAGE_KEY = "giveaways-v2";
+const EMPTY: Draft = { title: "", body: "", status: "Open" };
+const TONE: Record<Status, Tone> = { Open: "green", Draft: "amber", Closed: "grey" };
+const LISTS: ListFilter[] = ["All", ...STATUSES];
+
+// randomUUID only exists in secure contexts (HTTPS/localhost) and newer browsers.
+function createId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `entry-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const plural = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
+const formatDate = (at: number) => new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
 export default function Home() {
-  const [entries, setEntries] = useStoredEntries("giveaways-v2", SAMPLE_ENTRIES);
+  const [entries, setEntries] = useStoredState(STORAGE_KEY, SAMPLE_ENTRIES, parseStoredEntries);
+  const [list, setList] = useState<ListFilter>("All");
   const [query, setQuery] = useState("");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [status, setStatus] = useState<Entry["status"]>("Open");
-  const [notice, setNotice] = useState("The window is ready for a new entry.");
-  const filtered = useMemo(() => filterEntries(entries, query), [entries, query]);
+  const [composing, setComposing] = useState(false);
+  const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [removed, setRemoved] = useState<Removed | null>(null);
+  const [toastFocused, setToastFocused] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  const titleRef = useRef<HTMLInputElement>(null);
+  const newRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const toastRef = useRef<HTMLDivElement>(null);
+  const wasComposing = useRef(false);
+  const inList = useMemo(() => (list === "All" ? entries : entries.filter((entry) => entry.status === list)), [entries, list]);
+  const visible = useMemo(() => filterEntries(inList, query), [inList, query]);
+  const countOf = (value: ListFilter) => (value === "All" ? entries.length : entries.filter((entry) => entry.status === value).length);
 
-  const addEntry = (event: FormEvent<HTMLFormElement>) => {
+  // Opening the composer focuses its title; closing it returns focus to New entry.
+  useEffect(() => {
+    if (composing) titleRef.current?.focus();
+    else if (wasComposing.current) newRef.current?.focus();
+    wasComposing.current = composing;
+  }, [composing]);
+  useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
+  // The Undo toast closes 6 s after a removal, but never while it holds focus.
+  useEffect(() => {
+    if (!removed || toastFocused) return;
+    const timer = window.setTimeout(() => setRemoved(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [removed, toastFocused]);
+  // While the toast shows, the page reserves its height so nothing focusable stays hidden under it.
+  const toastShown = removed !== null;
+  useLayoutEffect(() => {
+    const toast = toastRef.current;
+    if (!toastShown || !toast) return;
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--as-toast-space", `${toast.offsetHeight + 32}px`);
+    return () => { rootStyle.removeProperty("--as-toast-space"); };
+  }, [toastShown]);
+
+  function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const entry = createEntry({ title, body, status }, crypto.randomUUID(), Date.now());
-    if ("error" in entry) { setNotice(entry.error); return; }
-    setEntries((items) => [entry, ...items]);
-    setTitle(""); setBody(""); setStatus("Open"); setNotice("Entry printed and filed in this browser.");
-  };
-  const updateStatus = (id: string, next: Entry["status"]) => {
-    setEntries((items) => items.map((item) => item.id === id ? { ...item, status: next } : item));
-    setNotice(`Ticket re-stamped as ${next.toLowerCase()}.`);
-  };
+    const entry = createEntry(draft, createId(), Date.now());
+    if ("error" in entry) { setAnnouncement(entry.error); return; }
+    setEntries((current) => [entry, ...current]);
+    if (list !== "All" && list !== entry.status) setList(entry.status);
+    setQuery("");
+    setAnnouncement(`Added “${entry.title}” as ${entry.status}.`);
+    setDraft(EMPTY);
+    setComposing(false);
+  }
 
-  return <main className="gw-page">
-    <header className="gw-topbar"><Link className="gw-mark" href="/">ENTRY / WINDOW</Link><span>RAFFLE OFFICE · LOCAL FILE</span><span className="gw-count">{ticketCount(entries.length)}</span></header>
-    <section className="gw-hero"><div><p className="gw-stamp">SMALL DRAW / SAMPLE REGISTER</p><h1>Make the draw<br /><span>legible.</span></h1><p className="gw-intro">A local list for giveaway entries. Print a clear ticket, search the rack, and keep the demo honest: there is no random winner engine behind this counter.</p></div><div className="gw-ticket"><div className="gw-ticket-head"><span>NEW ENTRY</span><b>NO. {String(entries.length + 1).padStart(3, "0")}</b></div><form className="gw-ticket-form" onSubmit={addEntry}><label>Title<input placeholder="Prize or campaign" required maxLength={MAX_TITLE} value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>Details<textarea maxLength={MAX_BODY} placeholder="How someone enters" value={body} onChange={(event) => setBody(event.target.value)} /></label><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as Entry["status"])}>{STATUSES.map((item) => <option key={item}>{item}</option>)}</select></label><button type="submit">PRINT ENTRY <span aria-hidden="true">↗</span></button><p role="status">{notice}</p></form></div></section>
-    <section className="gw-rack" aria-labelledby="rack-title"><div className="gw-rule"><span>02 / TICKET RACK</span><span>{filtered.length} MATCHES</span></div><div className="gw-rack-head"><h2 id="rack-title">The entry rack.</h2><label className="gw-search">FIND<input aria-label="Search entries" placeholder="Search title, details, status" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div><div className="gw-list">{filtered.length === 0 ? <p className="gw-empty">No tickets match that search.</p> : filtered.map((entry, index) => <article className="gw-entry" key={entry.id}><span className="gw-entry-number">{String(index + 1).padStart(2, "0")}</span><div className="gw-entry-copy"><div><h3>{entry.title}</h3><label className={`gw-status gw-status-${entry.status.toLowerCase()}`}><span className="sr-only">Status for {entry.title}</span><select value={entry.status} onChange={(event) => updateStatus(entry.id, event.target.value as Entry["status"])}>{STATUSES.map((item) => <option key={item}>{item}</option>)}</select></label></div><p>{entry.body}</p></div><time dateTime={new Date(entry.createdAt).toISOString()}>{new Date(entry.createdAt).toLocaleDateString("en-GB")}</time><button className="gw-delete" type="button" onClick={() => { setEntries((items) => items.filter((item) => item.id !== entry.id)); setNotice("Ticket removed from the local rack."); }} aria-label={`Remove ${entry.title}`}>REMOVE</button></article>)}</div></section>
-    <footer className="gw-footer"><strong>NO DRAW ENGINE / CRUD DEMO</strong><span>Giveaways · Bookchaowalit · localStorage only</span></footer>
-  </main>;
+  function restamp(entry: Entry, status: Status) {
+    setEntries((current) => current.map((item) => (item.id === entry.id ? { ...item, status } : item)));
+    setAnnouncement(`“${entry.title}” is now ${status}.`);
+  }
+
+  function remove(entry: Entry, viaKeyboard: boolean) {
+    const index = entries.findIndex((item) => item.id === entry.id);
+    if (index < 0) return;
+    setEntries((current) => current.filter((item) => item.id !== entry.id));
+    setRemoved({ entry, index, viaKeyboard });
+    setAnnouncement(`Removed “${entry.title}”. Undo is available for a few seconds.`);
+  }
+
+  function undo() {
+    if (!removed) return;
+    const { entry, index } = removed;
+    setEntries((current) => (current.some((item) => item.id === entry.id) ? current : [...current.slice(0, index), entry, ...current.slice(index)]));
+    setAnnouncement(`Restored “${entry.title}”.`);
+    setRemoved(null);
+    setToastFocused(false);
+  }
+
+  function clearSearch() {
+    setQuery("");
+    searchRef.current?.focus();
+  }
+
+  const title = list === "All" ? "All entries" : list;
+  const q = query.trim();
+
+  return (
+    <div className="as">
+      <a className="as-skip" href="#main">Skip to content</a>
+      <AppTop name="Giveaways" tagline="A plain list of giveaway entries" />
+
+      <div className="as-body">
+        <aside className="as-side" aria-label="Lists">
+          <h2>Lists</h2>
+          <ul className="as-lists">
+            {LISTS.map((value) => (
+              <ListButton key={value} label={value === "All" ? "All entries" : value} count={countOf(value)} tone={value === "All" ? undefined : TONE[value]} current={list === value} onSelect={() => setList(value)} />
+            ))}
+          </ul>
+        </aside>
+
+        <main id="main" className="as-main">
+          <div className="as-head">
+            <div>
+              <h1>{title}</h1>
+              <p aria-live="polite">{plural(visible.length)}{q ? ` matching “${q}”` : ""}</p>
+            </div>
+            <div className="as-tools">
+              <label className="as-search">
+                <span className="as-sr">Search entries</span>
+                <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" />
+              </label>
+              {composing ? null : <button ref={newRef} type="button" className="as-button" onClick={() => setComposing(true)}><PlusIcon />New entry</button>}
+            </div>
+          </div>
+
+          {composing ? (
+            <form className="as-composer" onSubmit={add} aria-label="New entry">
+              <label className="as-field">Prize or campaign
+                <input ref={titleRef} value={draft.title} maxLength={MAX_TITLE} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="e.g. Sticker pack" autoComplete="off" />
+              </label>
+              <label className="as-field">How to enter
+                <textarea value={draft.body} maxLength={MAX_BODY} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="Comment on the post, one entry per person" />
+              </label>
+              <div className="as-composer-foot">
+                <div className="as-segmented-wrap">
+                  <span id="status-label">Status</span>
+                  <div className="as-segmented" role="group" aria-labelledby="status-label">
+                    {STATUSES.map((status) => (
+                      <button key={status} type="button" aria-pressed={draft.status === status} onClick={() => setDraft({ ...draft, status })}>{status}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="as-composer-actions">
+                  <button type="button" className="as-plain" onClick={() => { setComposing(false); setDraft(EMPTY); }}>Cancel</button>
+                  <button type="submit" className="as-button" disabled={!draft.title.trim()}>Add</button>
+                </div>
+              </div>
+            </form>
+          ) : null}
+
+          {visible.length ? (
+            <ul className="as-list" aria-label={title}>
+              {visible.map((entry) => (
+                <li className="as-row" key={entry.id}>
+                  <div>
+                    <h3>{entry.title}</h3>
+                    <p className="as-row-detail">{entry.body}</p>
+                    <p className="as-row-meta"><time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry.createdAt)}</time>{SAMPLE_ENTRIES.some((sample) => sample.id === entry.id) ? " · Example entry" : ""}</p>
+                    <label className="gw-status">Status
+                      <select value={entry.status} onChange={(event) => restamp(entry, event.target.value as Status)} aria-label={`Status for ${entry.title}`}>
+                        {STATUSES.map((status) => <option key={status}>{status}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <Pill tone={TONE[entry.status]}>{entry.status}</Pill>
+                  <button type="button" className="as-plain as-danger" aria-label={`Remove ${entry.title}`} onClick={(event) => remove(entry, event.detail === 0)}>Remove</button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="as-list as-empty">
+              {q ? (
+                <>
+                  <strong>Nothing matches</strong>
+                  No entry in {list === "All" ? "your lists" : title} mentions “{q}”.
+                  <div style={{ marginTop: 8 }}><button type="button" className="as-plain" onClick={clearSearch}>Clear search</button></div>
+                </>
+              ) : entries.length === 0 ? (
+                <><strong>No entries yet</strong>Press New entry to add the first giveaway.</>
+              ) : (
+                <><strong>No {title} entries</strong>Change an entry&apos;s status, or press New entry and pick {title}.</>
+              )}
+            </div>
+          )}
+
+          <p className="as-note">Saved in this browser only. This is a list, not a draw: nothing here picks a winner or contacts anyone.</p>
+        </main>
+      </div>
+
+      <p className="as-sr" role="status" aria-live="polite">{announcement}</p>
+      {removed ? (
+        <div
+          ref={toastRef}
+          className="as-toast"
+          role="group"
+          aria-label="Undo remove"
+          onFocus={() => setToastFocused(true)}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
+          onKeyDown={(event) => { if (event.key === "Escape") { setRemoved(null); setToastFocused(false); } }}
+        >
+          <span>Removed “{removed.entry.title}”</span>
+          <button ref={undoRef} type="button" className="as-plain" onClick={undo}>Undo</button>
+        </div>
+      ) : null}
+
+      <AppFoot source="https://github.com/bookchaowalit-website/marketing-giveaways-web" />
+    </div>
+  );
 }
