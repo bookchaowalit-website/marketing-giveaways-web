@@ -148,7 +148,9 @@ export default function Home() {
   }
 
   function restamp(entry: Entry, status: Status) {
-    if (list !== "All" && status !== list) {
+    // The row leaves the shown list when the new status fails the list filter or the search (which matches status too).
+    const staysShown = (list === "All" || status === list) && filterEntries([{ ...entry, status }], query).length === 1;
+    if (!staysShown) {
       const shownAt = visible.findIndex((item) => item.id === entry.id);
       focusStatus.current = [visible[shownAt + 1]?.id, shownAt > 0 ? visible[shownAt - 1].id : undefined].filter((id): id is string => Boolean(id));
     }

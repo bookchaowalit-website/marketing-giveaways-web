@@ -182,6 +182,16 @@ describe("2026-11-20 review", () => {
     expect(document.activeElement?.textContent).toContain("New entry");
   });
 
+  it("a status change that takes the row out of the search results also moves focus (All entries)", () => {
+    addEntry("Mug");
+    type($<HTMLInputElement>(".as-search input")!, "Open");
+    expect(rows()).toEqual(["Mug", "Sticker pack"]);
+    selectFor("Mug").focus();
+    pick(selectFor("Mug"), "Closed");
+    expect(rows()).toEqual(["Sticker pack"]);
+    expect(document.activeElement).toBe(selectFor("Sticker pack"));
+  });
+
   it("shows a user entry's day in the browser's time zone", () => {
     const tz = process.env.TZ;
     process.env.TZ = "Asia/Bangkok";
