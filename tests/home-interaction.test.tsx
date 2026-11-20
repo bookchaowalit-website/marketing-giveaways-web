@@ -151,3 +151,62 @@ describe("batch Undo", () => {
     expect(rowIds()).toEqual(before.slice(1));
   });
 });
+
+describe("2026-11-20 review", () => {
+  const addEntry = (name: string, body = "") => {
+    press(button("New entry"));
+    type($<HTMLInputElement>(".as-composer input")!, name);
+    if (body) type($<HTMLTextAreaElement>(".as-composer textarea")!, body);
+    act(() => { $<HTMLFormElement>(".as-composer")!.requestSubmit(); });
+  };
+  const selectFor = (name: string) => $<HTMLSelectElement>(`select[aria-label="Status for ${name}"]`)!;
+
+  it("a long How to enter note gets Show more to read it in full", () => {
+    addEntry("Mug", "Follow the account\nComment with a friend\nShare to your story");
+    const more = button("Show more");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    press(more);
+    expect(button("Show less").getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(button("Show less").getAttribute("aria-controls")!)!.dataset.expanded).toBe("true");
+  });
+
+  it("a status change that takes the row out of the list moves focus to the next row's status, then to New entry", () => {
+    addEntry("Mug");
+    press(button("Open", $(".as-side")!));
+    expect(rows()).toEqual(["Mug", "Sticker pack"]);
+    selectFor("Mug").focus();
+    pick(selectFor("Mug"), "Draft");
+    expect(rows()).toEqual(["Sticker pack"]);
+    expect(document.activeElement).toBe(selectFor("Sticker pack"));
+    pick(selectFor("Sticker pack"), "Closed");
+    expect(document.activeElement?.textContent).toContain("New entry");
+  });
+
+  it("shows a user entry's day in the browser's time zone", () => {
+    const tz = process.env.TZ;
+    process.env.TZ = "Asia/Bangkok";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-19T17:30:00Z")); // 20 Nov 00:30 in Bangkok
+    try {
+      addEntry("Mug");
+      expect(host.querySelector(".as-row[data-item] time")!.textContent).toBe("20 Nov 2026");
+    } finally {
+      vi.useRealTimers();
+      process.env.TZ = tz;
+    }
+  });
+
+  it("keeps Add disabled for a title made only of invisible characters", () => {
+    press(button("New entry"));
+    type($<HTMLInputElement>(".as-composer input")!, "​​");
+    expect(button("Add", $(".as-composer")!).disabled).toBe(true);
+  });
+
+  it("Escape on Undo with no rows left and the composer open focuses the composer title", () => {
+    press(button("New entry"));
+    removeOnly();
+    act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(document.activeElement).toBe($(".as-composer input"));
+  });
+  const removeOnly = () => act(() => { host.querySelector(".as-danger")!.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })); });
+});

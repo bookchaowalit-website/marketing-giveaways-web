@@ -37,9 +37,14 @@ export function isValidTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= MAX_DATE_MS;
 }
 
+/** True when a title has nothing visible left once spaces and invisible characters (zero-width, soft hyphen) go. */
+export function isBlankTitle(value: string): boolean {
+  return !value.replace(INVISIBLE, "").trim();
+}
+
 export function createEntry(draft: Draft, id: string, now: number): Entry | { error: string } {
   const title = clipText(draft.title.trim(), MAX_TITLE);
-  if (!title.replace(INVISIBLE, "").trim()) return { error: "A ticket needs a title before it can be filed." };
+  if (isBlankTitle(title)) return { error: "A ticket needs a title before it can be filed." };
   return { id, title, body: clipText(draft.body.trim(), MAX_BODY) || "No details", status: draft.status, createdAt: now };
 }
 

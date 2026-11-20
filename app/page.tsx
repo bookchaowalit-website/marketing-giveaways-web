@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppFoot, AppTop, ListButton, Pill, PlusIcon, type Tone } from "@/components/app-shell";
-import { createEntry, filterEntries, MAX_BODY, MAX_TITLE, parseStoredEntries, SAMPLE_ENTRIES, STATUSES, type Draft, type Entry, type Status } from "@/lib/entries";
+import { createEntry, filterEntries, isBlankTitle, MAX_BODY, MAX_TITLE, parseStoredEntries, SAMPLE_ENTRIES, STATUSES, type Draft, type Entry, type Status } from "@/lib/entries";
 import { useStoredState } from "@/lib/use-stored-state";
 
 type ListFilter = "All" | Status;
@@ -27,7 +27,44 @@ function createId(): string {
 }
 
 const plural = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
-const formatDate = (at: number) => new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const isSample = (id: string) => SAMPLE_ENTRIES.some((sample) => sample.id === id);
+// Sample entries render on the server too, so they use a fixed zone (no hydration mismatch); entries the
+// user adds only ever render in the browser and show the day in the browser's own time zone.
+const formatDate = (entry: Entry) =>
+  new Date(entry.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", ...(isSample(entry.id) ? { timeZone: "UTC" } : {}) });
+
+// The row shows one line of detail (App shell rule); a long one gets Show more to read it in full.
+function EntryDetail({ body }: { body: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const id = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => { if (el.dataset.expanded !== "true") setClipped(el.scrollWidth > el.clientWidth); };
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    let live = true;
+    fonts?.ready?.then(() => { if (live) measure(); });
+    return () => {
+      live = false;
+      observer?.disconnect();
+    };
+  }, [body]);
+  const long = expanded || clipped || body.includes("\n");
+  return (
+    <>
+      <p ref={ref} id={id} className="as-row-detail" data-expanded={expanded ? "true" : undefined}>{body}</p>
+      {long ? (
+        <button type="button" className="as-plain as-row-more" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </>
+  );
+}
 
 export default function Home() {
   const [entries, setEntries] = useStoredState(STORAGE_KEY, SAMPLE_ENTRIES, parseStoredEntries);
@@ -47,6 +84,8 @@ export default function Home() {
   const searchRef = useRef<HTMLInputElement>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
   const focusNext = useRef<string[] | null>(null);
+  // After a status change takes a row out of the current list: the rows to focus instead (their status select).
+  const focusStatus = useRef<string[] | null>(null);
   const toastRef = useRef<HTMLDivElement>(null);
   const wasComposing = useRef(false);
   const inList = useMemo(() => (list === "All" ? entries : entries.filter((entry) => entry.status === list)), [entries, list]);
@@ -61,15 +100,25 @@ export default function Home() {
   }, [composing]);
   useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
   // When the toast closes after Undo or Escape, focus goes back near the removed row once the list has re-rendered:
-  // the first of these rows still shown, else the New button.
+  // the first of these rows still shown, else New entry, else the open composer's title, else the search field.
   useEffect(() => {
     const ids = focusNext.current;
     if (removed || !ids) return;
     focusNext.current = null;
     const rows = [...document.querySelectorAll<HTMLElement>(".as-row[data-item]")];
     const row = ids.map((id) => rows.find((entry) => entry.dataset.item === id)).find(Boolean);
-    (row?.querySelector<HTMLButtonElement>(".as-danger") ?? newRef.current)?.focus();
+    (row?.querySelector<HTMLButtonElement>(".as-danger") ?? newRef.current ?? titleRef.current ?? searchRef.current)?.focus();
   }, [removed, entries]);
+  // Once the re-stamped row has left the list: the next row's status select, else the previous one's, else
+  // New entry (or the search field while the composer is open).
+  useEffect(() => {
+    const ids = focusStatus.current;
+    if (!ids) return;
+    focusStatus.current = null;
+    const rows = [...document.querySelectorAll<HTMLElement>(".as-row[data-item]")];
+    const row = ids.map((id) => rows.find((entry) => entry.dataset.item === id)).find(Boolean);
+    (row?.querySelector<HTMLSelectElement>(".gw-status select") ?? newRef.current ?? searchRef.current)?.focus();
+  }, [entries, list]);
   // The Undo toast closes 6 s after the latest removal (each removal restarts it), but never while it holds focus.
   useEffect(() => {
     if (!removed || toastFocused) return;
@@ -99,6 +148,10 @@ export default function Home() {
   }
 
   function restamp(entry: Entry, status: Status) {
+    if (list !== "All" && status !== list) {
+      const shownAt = visible.findIndex((item) => item.id === entry.id);
+      focusStatus.current = [visible[shownAt + 1]?.id, shownAt > 0 ? visible[shownAt - 1].id : undefined].filter((id): id is string => Boolean(id));
+    }
     setEntries((current) => current.map((item) => (item.id === entry.id ? { ...item, status } : item)));
     setAnnouncement(`“${entry.title}” is now ${status}.`);
   }
@@ -189,7 +242,7 @@ export default function Home() {
                 </div>
                 <div className="as-composer-actions">
                   <button type="button" className="as-plain" onClick={() => { setComposing(false); setDraft(EMPTY); }}>Cancel</button>
-                  <button type="submit" className="as-button" disabled={!draft.title.trim()}>Add</button>
+                  <button type="submit" className="as-button" disabled={isBlankTitle(draft.title)}>Add</button>
                 </div>
               </div>
             </form>
@@ -201,8 +254,8 @@ export default function Home() {
                 <li className="as-row" key={entry.id} data-item={entry.id}>
                   <div>
                     <h3>{entry.title}</h3>
-                    <p className="as-row-detail">{entry.body}</p>
-                    <p className="as-row-meta"><time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry.createdAt)}</time>{SAMPLE_ENTRIES.some((sample) => sample.id === entry.id) ? " · Example entry" : ""}</p>
+                    <EntryDetail body={entry.body} />
+                    <p className="as-row-meta"><time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry)}</time>{isSample(entry.id) ? " · Example entry" : ""}</p>
                     <label className="gw-status">Status
                       <select value={entry.status} onChange={(event) => restamp(entry, event.target.value as Status)} aria-label={`Status for ${entry.title}`}>
                         {STATUSES.map((status) => <option key={status}>{status}</option>)}
