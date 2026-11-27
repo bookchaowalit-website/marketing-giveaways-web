@@ -9,17 +9,20 @@ Last reviewed: 2026-11-28 · commit `381584d`
 ```mermaid
 flowchart LR
   V["Visitor opens the site"] --> RD{"read localStorage and parse"}
-  RD -->|"bad JSON, unknown status, bad date, duplicate id"| DROP["bad entries dropped"]
-  RD -->|"nothing saved"| SEED["1 sample ticket"]
+  RD -->|"array with unknown status, bad date or duplicate id"| DROP["bad entries dropped, may leave an empty rack"]
+  RD -->|"nothing saved, unreadable JSON or not an array"| SEED["1 sample ticket"]
   DROP --> LIST["ticket rack"]
   RD -->|"valid"| LIST
   SEED --> LIST
   LIST --> ACT["search, re-stamp status, remove, add"]
-  ACT -->|"add with blank or invisible title"| REF["error: needs a title"]
+  ACT -->|"blank or invisible title"| REF["Add button disabled; submit still refused with: needs a title"]
   ACT -->|"add ok: title clip 80, details clip 400, blank details = No details"| SAVE["write entries to localStorage"]
-  ACT -->|"re-stamp or remove"| SAVE
+  ACT -->|"re-stamp"| SAVE
+  ACT -->|"remove: saved at once"| SAVE
+  SAVE -.->|"after remove"| UNDO["Undo toast: one press restores every ticket removed meanwhile, saves again"]
   AG["Caller POST /api/mcp"] --> MCP["JSON-RPC: one tool get_app_info, static descriptor"]
-  MCP -->|"unknown tool or method, bad JSON"| ERR["JSON-RPC error"]
+  MCP -->|"unknown tool or method with an id, bad JSON"| ERR["JSON-RPC error"]
+  MCP -->|"notification without id, e.g. notifications/initialized"| ACK["HTTP 202, no body"]
   ERRS["Browser or server error"] --> SEN["Sentry, errors only, only when NEXT_PUBLIC_SENTRY_DSN is set"]
   DEV["Push to main"] --> CI["CI: shared ci-node + security workflows"]
   OWN["Owner runs Vercel CLI deploy; Git link names the old repo, so a push does not deploy [ต้องยืนยัน: state from PRODUCT.md]"] --> LIVE["Live site, can lag main"]
@@ -37,7 +40,8 @@ flowchart LR
   RD --> LIST["ticket rack"]
   LIST --> ACT["search, re-stamp status, remove, add"]
   ACT --> SAVE["write entries to localStorage"]
-  SAVE --> EXP["Export or import the rack as JSON"]
+  LIST --> EXP["Export the current rack as JSON"]
+  V --> IMP["Import a JSON file at once, e.g. after a browser reset"] --> SAVE
   DEV["Push to main"] --> CI["CI: shared ci-node + security workflows + Playwright smoke test"]
   DEV --> VG["Vercel Git deploy on push to main"] --> LIVE["Live site"]
 ```
